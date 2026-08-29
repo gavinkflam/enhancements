@@ -114,7 +114,7 @@ volumes include ConfigMap, Secret, DownwardAPI and Projected volumes.
 This allows users to define file owner UID per item that takes precedence over the volume level `DefaultUser`
 field.
 
-3. When writing files into the atomic write volumes, Kubelet configures their file owner UID according to
+3. When writing files into the atomic write volumes, kubelet configures their file owner UID according to
 the `DefaultUser` and `User` fields.
 
 ### User Stories (Optional)
@@ -157,22 +157,22 @@ volumes:
     defaultUser: 1000
     name: cm1
     items:
-    - key: foo // Owner=defaultUser
+    - key: foo # Owner=defaultUser
       path: foo
-    - key: bar // Owner=user
+    - key: bar # Owner=user
       path: bar
       user: 1001
 - name: volB
-  secret: // Owner=defaultUser
+  secret: # Owner=defaultUser
     defaultUser: 1000
     secretName: secret1
 - name: volC
   secret:
     secretName: secret2
     items:
-    - key: moo // Owner=root
+    - key: moo # Owner=root
       path: moo
-    - key: baa // Owner=user
+    - key: baa # Owner=user
       path: baa
       user: 1000
 ```
@@ -248,7 +248,7 @@ owned by that user and the permission mode set to `0600`.
 The same heuristic is also implemented by projected cluster trust bundles ([KEP-3257](kep-3257)) and
 pod certificates ([KEP-4317](kep-4317)).
 
-While this heruistic continues to function, the new `defaultUser` and `user` fields provide higher
+While this heuristic continues to function, the new `defaultUser` and `user` fields provide higher
 specificity and take precedence over the `runAsUser` value.
 
 The file owner UID is evaluated per file in the following order of increasing precedence (where later
@@ -265,18 +265,18 @@ volumes:
 - name: volA
   projected:
     sources:
-    - serviceAccountToken: // Owner=runAsUser
+    - serviceAccountToken: # Owner=runAsUser
         path: tokenA
-    - serviceAccountToken: // Owner=user
+    - serviceAccountToken: # Owner=user
         path: tokenB
         user: 1001
 - name: volB
   projected:
     defaultUser: 1001
     sources:
-    - serviceAccountToken: // Owner=defaultUser
+    - serviceAccountToken: # Owner=defaultUser
         path: tokenA
-    - serviceAccountToken: // Owner=user
+    - serviceAccountToken: # Owner=user
         path: tokenB
         user: 1002
 ```
@@ -623,7 +623,7 @@ TBD
 
 ## Alternatives
 
-1. An idea of a `podSecurityContext.fsUser` has been proposed. However, I believe this KEP is preferrable
+1. An idea of a `podSecurityContext.fsUser` has been proposed. However, I believe this KEP is preferable
 because of the following reasons.
 
     1. `podSecurityContext.fsUser` is a pod level construct.
@@ -659,7 +659,7 @@ because of the following reasons.
 
     2. Do not support containers having different `runAsUser`.
 
-       The current implemetation requires all containers having the same `runAsUser`.
+       The current implementation requires all containers having the same `runAsUser`.
 
        We can potentially extend it to look up the container `securityContext.runAsUser` and
        apply chown to volumes that is only mounted to one container.

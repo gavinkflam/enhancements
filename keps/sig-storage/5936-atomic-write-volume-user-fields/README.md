@@ -47,7 +47,7 @@ Items marked with (R) are required *prior to targeting to a milestone / release*
 - [x] (R) KEP approvers have approved the KEP status as `implementable`
 - [x] (R) Design details are appropriately documented
 - [x] (R) Test plan is in place, giving consideration to SIG Architecture and SIG Testing input (including test refactors)
-  - [ ] e2e Tests for all Beta API Operations (endpoints)
+  - [x] e2e Tests for all Beta API Operations (endpoints)
   - [ ] (R) Ensure GA e2e tests meet requirements for [Conformance Tests](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/conformance-tests.md)
   - [ ] (R) Minimum Two Week Window for GA e2e tests to prove flake free
 - [x] (R) Graduation criteria is in place
@@ -55,8 +55,8 @@ Items marked with (R) are required *prior to targeting to a milestone / release*
 - [x] (R) Production readiness review completed
 - [x] (R) Production readiness review approved
 - [x] "Implementation History" section is up-to-date for milestone
-- [ ] User-facing documentation has been created in [kubernetes/website], for publication to [kubernetes.io]
-- [ ] Supporting documentation—e.g., additional design documents, links to mailing list discussions/SIG meetings, relevant PRs/issues, release notes
+- [x] User-facing documentation has been created in [kubernetes/website], for publication to [kubernetes.io]
+- [x] Supporting documentation—e.g., additional design documents, links to mailing list discussions/SIG meetings, relevant PRs/issues, release notes
 
 [kubernetes.io]: https://kubernetes.io/
 [kubernetes/enhancements]: https://git.k8s.io/enhancements
@@ -355,7 +355,9 @@ __SIG Auth__
 
 #### Beta
 
-TBD
+- Feature gate enabled by default
+- Upgrade->downgrade->upgrade testing completed
+- Address any issues and feedback during alpha
 
 #### GA
 
@@ -491,12 +493,36 @@ To prevent such issues, it is recommended to upgrade all node kubelets before en
 
 ###### What specific metrics should inform a rollback?
 
-An abnormal increase in the baseline `storage_operation_duration_seconds` metric for the supported volume
-types indicates that the feature is degrading storage performance and a rollback is advised.
+An increased failure rate of volume mount operations can be used as an indication
+of a problem. In particular, the following metric:
+
+- Metric name: `storage_operation_duration_seconds` (Existing metric)
+  - Aggregation method:
+    - filter by `volume_plugin=~"kubernetes.io/configmap|kubernetes.io/downward-api|kubernetes.io/projected|kubernetes.io/secret"`
+    - filter by `operation_name="volume_mount"`
+    - filter by `status="fail-unknown"`
+  - Components exposing the metric: kubelet
 
 ###### Were upgrade and rollback tested? Was the upgrade->downgrade->upgrade path tested?
 
-Manual testing for upgrade/rollback will be done prior to Beta. Steps taken for manual tests will be updated here.
+The following test has been performed manually.
+It verifies the behavior documented in [Upgrade / Downgrade Strategy](#upgrade--downgrade-strategy).
+
+1. Deploy a cluster with the feature flag `AtomicWriteVolumeUserFields` disabled.
+2. Create a deployment with a pod and a ConfigMap volume.
+    1. Confirm that the pod starts successfully and its volume data file is owned by root.
+3. Enable the feature flag `AtomicWriteVolumeUserFields`. Restart both apiserver and kubelet.
+    1. Confirm that the pod is still running and its volume data file is owned by root.
+    2. Edit the deployment to add a `defaultUser: 1000` field to the ConfigMap volume.
+    3. Confirm that a new pod starts successfully and its volume data file is owned by UID `1000`.
+4. Disable the feature flag `AtomicWriteVolumeUserFields`. Restart both apiserver and kubelet.
+    1. Confirm that the pod is still running and its volume data file is owned by UID `1000`.
+    2. Delete the old pod.
+    3. Confirm that a new pod starts successfully and its volume data file is owned by root.
+5. Re-enable the feature flag `AtomicWriteVolumeUserFields`. Restart both apiserver and kubelet.
+    1. Confirm that the pod is still running and its volume data file is owned by root.
+    2. Delete the old pod.
+    3. Confirm that a new pod starts successfully and its volume data file is owned by UID `1000`.
 
 ###### Is the rollout accompanied by any deprecations and/or removals of features, APIs, fields of API types, flags, etc.?
 
@@ -506,19 +532,20 @@ No.
 
 ###### How can an operator determine if the feature is in use by workloads?
 
-TBD
+Use the following command to look for pods with `defaultUser` or `user` fields defined in its volumes.
+
+```bash
+kubectl get pods -A -o json | jq '[ .items[] | select(.spec.volumes[]? | .. | objects | (.defaultUser? != null or .user? != null)) | "\(.metadata.namespace)/\(.metadata.name)" ]'
+```
 
 ###### How can someone using this feature know that it is working for their instance?
 
-TBD
+For individual pods using volume mounts with user fields (as in [Examples](#examples)),
+review the status of the pod:
 
-- [ ] Events
-  - Event Reason: 
-- [ ] API .status
-  - Condition name: 
-  - Other field: 
-- [ ] Other (treat as last resort)
-  - Details:
+- [x] API Pod.status
+  - Condition name: Ready
+  - Other field: Pod.status.phase = Running
 
 ###### What are the reasonable SLOs (Service Level Objectives) for the enhancement?
 
@@ -528,8 +555,9 @@ No changes to kubelet SLOs.
 
 - [x] Metrics
   - Metric name: `storage_operation_duration_seconds` (existing metric)
-  - Aggregation method: filter by `volume_plugin` = one of
-    `kubernetes.io/configmap`, `kubernetes.io/downward-api`, `kubernetes.io/projected` or `kubernetes.io/secret`
+  - Aggregation method:
+    - filter by `volume_plugin=~"kubernetes.io/configmap|kubernetes.io/downward-api|kubernetes.io/projected|kubernetes.io/secret"`
+    - filter by `operation_name="volume_mount"`
   - Components exposing the metric: kubelet
 
 ###### Are there any missing metrics that would be useful to have to improve observability of this feature?
@@ -590,16 +618,25 @@ This proposal introduces no changes to the existing behavior.
 
 ###### What are other known failure modes?
 
-TBD
+- Failed to apply the requested file owner UID to a volume data file
+  - Detection: metric `storage_operation_duration_seconds` filter by `operation_name="volume_mount"` and `status="fail-unknown"`
+  - Mitigations: disable the `AtomicWriteVolumeUserFields` feature flag.
+  - Diagnostics: look for kubelet logs at error level `Error writing payload to dir` and chown related errors.
+  - Testing: chown can fail for many reasons (e.g. SELinux, filesystem does not support chown) that are hard to reproduce in a test.
 
 ###### What steps should be taken if SLOs are not being met to determine the problem?
 
-TBD
+Review kubelet logs to find out the root cause.
+
+Look for `Error writing payload to dir` and chown related errors.
 
 ## Implementation History
 
 * 2026-02-24 Initial proposal to SIG
 * 2026-02-27 Initial KEP draft
+* 2026-06-15 KEP merged
+* 2026-07-22 Alpha code PR merged
+* 2026-08-04 Alpha docs PR merged
 
 ## Drawbacks
 
